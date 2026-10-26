@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'api/api_client.dart';
+import 'screens/attendance_gate.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/reminder_service.dart';
 import 'services/token_store.dart';
+import 'state/attendance_state.dart';
 import 'state/auth_state.dart';
 
 Future<void> main() async {
@@ -19,6 +21,7 @@ Future<void> main() async {
       Provider<ApiClient>.value(value: api),
       Provider<ReminderService>.value(value: reminders),
       ChangeNotifierProvider<AuthState>.value(value: auth),
+      ChangeNotifierProvider<AttendanceState>(create: (_) => AttendanceState(api)),
     ],
     child: const FieldSalesApp(),
   ));
@@ -48,6 +51,6 @@ class _Gate extends StatelessWidget {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthState>();
     if (auth.initializing) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    return auth.me == null ? const LoginScreen() : const HomeScreen();
+    return auth.me == null ? const LoginScreen() : const AttendanceGate(child: HomeScreen());
   }
 }

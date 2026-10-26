@@ -54,7 +54,7 @@ keys = """	<key>NSCameraUsageDescription</key>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>FieldSales lets you choose a photo to attach to a visit.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>FieldSales records your location for a visit only when you tap "Capture location".</string>
+	<string>FieldSales records your location when you capture a visit location and when you start or end your day or a break (attendance).</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

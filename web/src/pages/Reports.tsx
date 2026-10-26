@@ -15,9 +15,16 @@ const REPORTS = [
   { key: "pending", label: "Pending follow-ups", path: "/reports/followups", fixed: { status: "Pending" }, filters: ["dates", "salesman"] },
   { key: "overdue", label: "Overdue follow-ups", path: "/reports/followups", fixed: { overdue: true }, filters: ["salesman"] },
   { key: "completed", label: "Completed follow-ups", path: "/reports/followups", fixed: { status: "Completed" }, filters: ["dates", "salesman"] },
+  { key: "attendance", label: "Attendance & working hours", path: "/reports/attendance", filters: ["dates", "salesman"] },
+  { key: "attendance-locations", label: "Attendance locations (every event)", path: "/reports/attendance-locations", filters: ["dates", "salesman"] },
+  { key: "attendance-areas", label: "Attendance by area (location-wise)", path: "/reports/attendance-areas", filters: ["dates", "salesman"] },
 ] as const;
 
 const looksLikeIso = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?$/.test(v);
+const isMapLink = (v: unknown) => typeof v === "string" && v.startsWith("https://www.google.com/maps");
+const cellValue = (v: unknown) =>
+  isMapLink(v) ? <a href={v as string} target="_blank" rel="noreferrer" className="font-medium text-brand-600 hover:underline">Open map</a>
+    : looksLikeIso(v) ? fmtDateTime(v as string) : (v as any) ?? "—";
 
 export default function Reports() {
   const { can, me } = useAuth();
@@ -67,7 +74,7 @@ export default function Reports() {
           <>
             <p className="mb-2 text-sm text-slate-600">{result.total} row(s)</p>
             <DataTable<Record<string, any>> rows={result.rows.map((r, i) => ({ ...r, __i: i }))} rowKey={(r) => r.__i} empty="No data for the selected filters."
-              columns={result.columns.map((c) => ({ header: c.label, cell: (r) => (looksLikeIso(r[c.key]) ? fmtDateTime(r[c.key]) : r[c.key] ?? "—") }))} />
+              columns={result.columns.map((c) => ({ header: c.label, cell: (r) => cellValue(r[c.key]) }))} />
           </>
         )}
       </div>

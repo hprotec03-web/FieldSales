@@ -166,3 +166,114 @@ def customer_activity_report(db: Session, ctx: CurrentUser, customer):
     rows = [i.model_dump() for i in items]
     cols = [("at", "Date"), ("type", "Type"), ("user_name", "User"), ("summary", "Summary")]
     return cols, rows
+
+
+# ---------- attendance ----------
+def _hm(minutes: int) -> str:
+    return f"{minutes // 60}h {minutes % 60:02d}m"
+
+
+def _place(loc) -> str:
+    if loc is None or loc.latitude is None:
+        return ""
+    return loc.area or loc.address or f"{loc.latitude:.5f}, {loc.longitude:.5f}"
+
+
+def _map(loc) -> str:
+    return "" if loc is None or loc.latitude is None else f"https://www.google.com/maps?q={loc.latitude},{loc.longitude}"
+
+
+def _attendance_sessions(db: Session, ctx: CurrentUser, date_from=None, date_to=None, user_id=None):
+    from app.models.attendance import Attendance
+    from app.services import attendance as att_svc
+    stmt = att_svc.sessions_stmt(ctx)
+    if date_from:
+        stmt = stmt.where(Attendance.work_date >= date_from)
+    if date_to:
+        stmt = stmt.where(Attendance.work_date <= date_to)
+    if user_id:
+        stmt = stmt.where(Attendance.user_id == user_id)
+    stmt = stmt.order_by(Attendance.work_date.desc(), Attendance.check_in_at)
+    return att_svc.to_out(db, list(db.scalars(stmt.limit(MAX_ROWS)).all()))
+
+
+STATE_LABELS = {"working": "Working", "on_break": "On break", "checked_out": "Checked out"}
+
+
+def attendance_report(db: Session, ctx: CurrentUser, date_from=None, date_to=None, user_id=None):
+    """One row per working day per salesman: in/out times and places, breaks and worked hours."""
+    rows = []
+    for s in _attendance_sessions(db, ctx, date_from, date_to, user_id):
+        rows.append({
+            "work_date": s.work_date.isoformat(), "salesman": s.user_name, "branch": s.branch_name,
+            "check_in_at": s.check_in_at, "check_in_place": _place(s.check_in), "check_in_map": _map(s.check_in),
+            "check_out_at": s.check_out_at, "check_out_place": _place(s.check_out), "check_out_map": _map(s.check_out),
+            "check_out_method": s.check_out_method or "", "breaks": len(s.breaks), "break_time": _hm(s.break_minutes),
+            "worked_time": _hm(s.worked_minutes), "worked_hours": round(s.worked_minutes / 60, 2),
+            "status": STATE_LABELS[s.state], "fake_gps": "Yes" if s.any_mocked else "",
+        })
+    cols = [("work_date", "Date"), ("salesman", "Salesman"), ("branch", "Branch"),
+            ("check_in_at", "Check-in"), ("check_in_place", "Check-in location"), ("check_in_map", "Check-in map"),
+            ("check_out_at", "Check-out"), ("check_out_place", "Check-out location"), ("check_out_map", "Check-out map"),
+            ("check_out_method", "Check-out by"), ("breaks", "Breaks"), ("break_time", "Break time"),
+            ("worked_time", "Working time"), ("worked_hours", "Working hours"), ("status", "Status"), ("fake_gps", "Fake GPS")]
+    return cols, rows
+
+
+def _location_events(sessions):
+    for s in sessions:
+        yield s, "Check-in", s.check_in_at, s.check_in
+        for b in s.breaks:
+            yield s, f"Break start ({b.break_type})", b.start_at, b.start
+            if b.end_at:
+                yield s, f"Break end ({b.break_type})", b.end_at, b.end
+        if s.check_out_at:
+            yield s, "Check-out (auto)" if s.check_out_method == "auto" else "Check-out", s.check_out_at, s.check_out
+
+
+def attendance_locations_report(db: Session, ctx: CurrentUser, date_from=None, date_to=None, user_id=None):
+    """Every attendance event with its GPS position (check-in, each break start/end, check-out)."""
+    rows = []
+    for s, event, at, loc in _location_events(_attendance_sessions(db, ctx, date_from, date_to, user_id)):
+        has = loc is not None and loc.latitude is not None
+        rows.append({
+            "work_date": s.work_date.isoformat(), "salesman": s.user_name, "time": at, "event": event,
+            "area": (loc.area or "") if has else "", "address": (loc.address or "") if has else "",
+            "latitude": loc.latitude if has else None, "longitude": loc.longitude if has else None,
+            "accuracy_m": round(loc.accuracy) if has and loc.accuracy is not None else None,
+            "fake_gps": "Yes" if has and loc.is_mocked else "", "map": _map(loc),
+        })
+    rows.sort(key=lambda r: (r["salesman"], r["time"]))
+    cols = [("work_date", "Date"), ("salesman", "Salesman"), ("time", "Time"), ("event", "Event"), ("area", "Area"),
+            ("address", "Address"), ("latitude", "Latitude"), ("longitude", "Longitude"), ("accuracy_m", "Accuracy (m)"),
+            ("fake_gps", "Fake GPS"), ("map", "Map")]
+    return cols, rows
+
+
+def attendance_areas_report(db: Session, ctx: CurrentUser, date_from=None, date_to=None, user_id=None):
+    """Location-wise summary: per area and salesman, how many check-ins, breaks and check-outs happened there."""
+    groups: dict[tuple[str, str], dict] = {}
+    for s, event, at, loc in _location_events(_attendance_sessions(db, ctx, date_from, date_to, user_id)):
+        if loc is None or loc.latitude is None:
+            continue
+        area = loc.area or f"~{loc.latitude:.2f}, {loc.longitude:.2f}"  # ~1 km grid when the device gave no area name
+        g = groups.setdefault((area, s.user_name), {
+            "area": area, "salesman": s.user_name, "days": set(), "check_ins": 0, "breaks": 0, "check_outs": 0, "events": 0,
+            "first_seen": at, "last_seen": at, "map": _map(loc)})
+        if event.startswith("Check-in"):
+            g["check_ins"] += 1
+        elif event.startswith("Break start"):
+            g["breaks"] += 1
+        elif event.startswith("Check-out"):
+            g["check_outs"] += 1
+        g["events"] += 1  # every event at this place, including break ends
+        g["days"].add(s.work_date)
+        g["first_seen"], g["last_seen"] = min(g["first_seen"], at), max(g["last_seen"], at)
+    rows = []
+    for g in sorted(groups.values(), key=lambda g: (g["area"], g["salesman"])):
+        g["days"] = len(g["days"])
+        rows.append(g)
+    cols = [("area", "Area"), ("salesman", "Salesman"), ("days", "Days"), ("check_ins", "Check-ins"), ("breaks", "Breaks"),
+            ("check_outs", "Check-outs"), ("events", "Total events"), ("first_seen", "First seen"), ("last_seen", "Last seen"),
+            ("map", "Map")]
+    return cols, rows

@@ -60,3 +60,26 @@ def customer_activity(customer_id: int, format: str = Fmt,
                       ctx: CurrentUser = Depends(require_permission("Reports.View")), db: Session = Depends(get_db)):
     customer = get_customer(db, ctx, customer_id)
     return _emit(*svc.customer_activity_report(db, ctx, customer), format, f"customer-{customer.id}-activity")
+
+
+@router.get("/attendance")
+def attendance(date_from: date | None = None, date_to: date | None = None, salesman_id: int | None = None, format: str = Fmt,
+               ctx: CurrentUser = Depends(require_permission("Reports.View")), db: Session = Depends(get_db)):
+    """Daily attendance: check-in/out time and place, breaks and total working hours."""
+    return _emit(*svc.attendance_report(db, ctx, date_from, date_to, salesman_id), format, "attendance")
+
+
+@router.get("/attendance-locations")
+def attendance_locations(date_from: date | None = None, date_to: date | None = None, salesman_id: int | None = None,
+                         format: str = Fmt, ctx: CurrentUser = Depends(require_permission("Reports.View")),
+                         db: Session = Depends(get_db)):
+    """Every attendance event (check-in, breaks, check-out) with its GPS location."""
+    return _emit(*svc.attendance_locations_report(db, ctx, date_from, date_to, salesman_id), format, "attendance-locations")
+
+
+@router.get("/attendance-areas")
+def attendance_areas(date_from: date | None = None, date_to: date | None = None, salesman_id: int | None = None,
+                     format: str = Fmt, ctx: CurrentUser = Depends(require_permission("Reports.View")),
+                     db: Session = Depends(get_db)):
+    """Location-wise summary: activity per area and salesman."""
+    return _emit(*svc.attendance_areas_report(db, ctx, date_from, date_to, salesman_id), format, "attendance-areas")

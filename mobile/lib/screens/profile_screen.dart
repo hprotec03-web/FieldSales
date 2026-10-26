@@ -3,13 +3,16 @@ import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
 import '../state/auth_state.dart';
+import '../widgets/attendance_widgets.dart';
 import '../widgets/common.dart';
+import 'attendance_history_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
   @override
   Widget build(BuildContext context) {
-    final me = context.watch<AuthState>().me;
+    final auth = context.watch<AuthState>();
+    final me = auth.me;
     if (me == null) return const SizedBox.shrink();
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
@@ -18,15 +21,20 @@ class ProfileScreen extends StatelessWidget {
         LabeledValue('Username', me.username), LabeledValue('Role', me.roleName), LabeledValue('Company', me.companyName),
         LabeledValue('Email', me.email), LabeledValue('Mobile', me.mobile),
         const SizedBox(height: 16),
+        if (auth.can('Attendance.Mark')) ...[
+          OutlinedButton.icon(
+            icon: const Icon(Icons.history_rounded),
+            label: const Text('My attendance'),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceHistoryScreen())),
+          ),
+          const SizedBox(height: 8),
+        ],
         OutlinedButton.icon(icon: const Icon(Icons.lock_outline), label: const Text('Change password'), onPressed: () => showDialog(context: context, builder: (_) => const _PasswordDialog())),
         const SizedBox(height: 8),
         FilledButton.tonalIcon(
           icon: const Icon(Icons.logout),
           label: const Text('Log out'),
-          onPressed: () async {
-            final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: const Text('Log out?'), actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')), TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Log out'))]));
-            if (ok == true && context.mounted) await context.read<AuthState>().logout();
-          },
+          onPressed: () => logoutWithAttendance(context),
         ),
       ]),
     );

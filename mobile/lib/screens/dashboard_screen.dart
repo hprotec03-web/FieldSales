@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -5,7 +7,9 @@ import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
 import '../models.dart';
+import '../state/attendance_state.dart';
 import '../state/auth_state.dart';
+import '../widgets/attendance_widgets.dart';
 import '../widgets/charts.dart';
 import '../widgets/common.dart';
 import 'followup_detail_screen.dart';
@@ -31,6 +35,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// Refresh keeps the previous data on screen (dimmed) instead of flashing a full-page spinner.
   Future<void> _load() async {
     setState(() => _loading = true);
+    final auth = context.read<AuthState>();
+    final me = auth.me;
+    if (me != null && auth.can('Attendance.Mark')) unawaited(context.read<AttendanceState>().load(me.id));
     await _fetch();
   }
 
@@ -153,6 +160,7 @@ class _DashboardBody extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
             child: Column(children: [
+              if (context.read<AuthState>().can('Attendance.Mark')) ...[const AttendanceCard(), const SizedBox(height: 12)],
               Row(children: [
                 Expanded(
                   child: company

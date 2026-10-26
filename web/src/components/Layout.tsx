@@ -16,6 +16,7 @@ export default function Layout() {
     { to: "/customers", label: "Customers", icon: "customers", show: can("Customer.View") },
     { to: "/visits", label: "Visits", icon: "visits", show: can("Visit.View") },
     { to: "/followups", label: "Follow-ups", icon: "followups", show: can("FollowUp.View") },
+    { to: "/attendance", label: "Attendance", icon: "attendance", show: can("Attendance.View") && me.role.data_scope === "company" },
     { to: "/reports", label: "Reports", icon: "reports", show: can("Reports.View") },
   ];
   const admin: NavItem[] = [

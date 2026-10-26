@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import Layout from "./components/Layout";
 import { ErrorBox, Loading } from "./components/ui";
+import Attendance from "./pages/Attendance";
 import Branches from "./pages/Branches";
 import Company from "./pages/Company";
 import CustomerDetail from "./pages/CustomerDetail";
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="visits/:id" element={<Can permission="Visit.View"><VisitDetail /></Can>} />
         <Route path="followups" element={<Can permission="FollowUp.View"><FollowUps /></Can>} />
         <Route path="followups/:id" element={<Can permission="FollowUp.View"><FollowUpDetailPage /></Can>} />
+        <Route path="attendance" element={<Can permission="Attendance.View"><Attendance /></Can>} />
         <Route path="reports" element={<Can permission="Reports.View"><Reports /></Can>} />
         <Route path="users" element={<Can permission="User.View"><Users /></Can>} />
         <Route path="roles" element={<Can permission="Company.Edit"><Roles /></Can>} />

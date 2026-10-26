@@ -8,6 +8,7 @@ ALL_PERMISSIONS = [
     "Visit.View", "Visit.Create", "Visit.Edit",
     "FollowUp.View", "FollowUp.Create", "FollowUp.Edit", "FollowUp.Complete",
     "Reports.View",
+    "Attendance.Mark", "Attendance.View",
 ]
 
 # data_scope: "company" = sees all company records; "assigned" = only customers currently assigned to the user.
@@ -21,6 +22,7 @@ DEFAULT_ROLES: dict[str, dict] = {
             "Visit.View", "Visit.Create", "Visit.Edit",
             "FollowUp.View", "FollowUp.Create", "FollowUp.Edit", "FollowUp.Complete",
             "Reports.View",
+            "Attendance.Mark", "Attendance.View",
         ],
     },
     "Salesman": {
@@ -31,6 +33,7 @@ DEFAULT_ROLES: dict[str, dict] = {
             "Customer.View",
             "Visit.View", "Visit.Create",
             "FollowUp.View", "FollowUp.Create", "FollowUp.Edit", "FollowUp.Complete",
+            "Attendance.Mark",  # own check-in / breaks / check-out only
         ],
     },
 }
