@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.log
+backend/uploads/
+.pytest_cache/
+node_modules/
+web/dist/
+mobile/build/
+mobile/.dart_tool/
+mobile/.flutter-plugins*
+mobile/android/local.properties
+mobile/android/key.properties
+*.jks
+.idea/
+.vscode/

@@ -1,0 +1,23 @@
+# Backend + web. SQL Server is NOT included: point DB_* at your existing SQL Server instance.
+# (For a throw-away local DB you can add the mcr.microsoft.com/mssql/server image yourself.)
+services:
+  api:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - uploads:/data/uploads
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    depends_on: [api]
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  uploads:
