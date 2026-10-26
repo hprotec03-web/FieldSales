@@ -118,3 +118,27 @@ def test_salesman_activity_and_assignment_reports(client, world, h):
     assert rep["total"] == 3 and sum(1 for r in rep["rows"] if r["is_active"] == "No") == 1
     ca = client.get(f"/api/v1/reports/customer-activity?customer_id={c1['id']}", headers=h["a_manager"]).json()
     assert {"visit", "assignment"} <= {r["type"] for r in ca["rows"]}
+
+
+def test_dashboard_chart_data(client, world, h):
+    c1, c2 = _seed_activity(client, h, world)
+    now = datetime.utcnow()
+    _visit(client, h["a_sales1"], c1["id"], now, outcome="Interested")
+    _visit(client, h["a_sales1"], c1["id"], now - timedelta(days=1), outcome="Interested")
+    _visit(client, h["a_sales2"], c2["id"], now - timedelta(days=2), outcome="Not Interested")
+    _visit(client, h["a_sales2"], c2["id"], now - timedelta(days=40))  # outside both chart windows
+    _visit(client, h["b_sales"], world.b_customer.id, now, outcome="Interested")  # other company: never counted
+    fu = client.post("/api/v1/followups", json={"customer_id": c1["id"], "due_date": (now + timedelta(days=1)).isoformat()}, headers=h["a_manager"]).json()
+    client.post(f"/api/v1/followups/{fu['id']}/complete", headers=h["a_manager"])
+
+    d = client.get("/api/v1/dashboard", headers=h["a_admin"]).json()
+    assert len(d["visit_trend"]) == 14 and sum(p["visits"] for p in d["visit_trend"]) == 3
+    assert d["visit_trend"][-1] == {"date": now.date().isoformat(), "visits": 1}
+    assert d["visit_outcomes"] == [{"outcome": "Interested", "visits": 2}, {"outcome": "Not Interested", "visits": 1}]
+    assert (d["completed_followups"], d["cancelled_followups"]) == (1, 0)
+
+    # a salesman only sees chart data for their own customers
+    s2 = client.get("/api/v1/dashboard", headers=h["a_sales2"]).json()
+    assert sum(p["visits"] for p in s2["visit_trend"]) == 1
+    assert s2["visit_outcomes"] == [{"outcome": "Not Interested", "visits": 1}]
+    assert s2["completed_followups"] == 0

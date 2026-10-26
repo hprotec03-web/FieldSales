@@ -24,6 +24,45 @@ def _today_bounds(offset_minutes: int) -> tuple[datetime, datetime]:
     return start_utc, start_utc + timedelta(days=1)
 
 
+TREND_DAYS = 14
+OUTCOME_DAYS = 30
+
+
+def _charts(db: Session, visits, followups, today_start: datetime, today_end: datetime, offset_minutes: int) -> dict:
+    """Chart data for the dashboard. Uses the same visibility-scoped statements as the counters."""
+    day = timedelta(days=1)
+
+    # Visits per local day for the last TREND_DAYS days (bucketed in Python so it works on any database).
+    trend_start = today_start - day * (TREND_DAYS - 1)
+    counts = [0] * TREND_DAYS
+    times = db.scalars(visits.order_by(None).with_only_columns(Visit.visit_time)
+                       .where(Visit.visit_time >= trend_start, Visit.visit_time < today_end)).all()
+    for t in times:
+        counts[int((t - trend_start) // day)] += 1
+    first_local = (trend_start + timedelta(minutes=offset_minutes)).date()
+    visit_trend = [{"date": (first_local + day * i).isoformat(), "visits": n} for i, n in enumerate(counts)]
+
+    # Visit outcomes in the last OUTCOME_DAYS days, most common first (outcomes are a fixed list, so this stays short).
+    rows = db.execute(
+        visits.order_by(None).with_only_columns(Visit.outcome, func.count())
+        .where(Visit.visit_time >= today_end - day * OUTCOME_DAYS, Visit.visit_time < today_end)
+        .group_by(Visit.outcome)
+    ).all()
+    merged: dict[str, int] = {}
+    for outcome, n in rows:
+        key = (outcome or "").strip() or "Not recorded"
+        merged[key] = merged.get(key, 0) + n
+    ranked = sorted(merged.items(), key=lambda kv: (-kv[1], kv[0]))
+    outcomes = [{"outcome": k, "visits": n} for k, n in ranked]
+
+    return {
+        "visit_trend": visit_trend,
+        "visit_outcomes": outcomes,
+        "completed_followups": _count(db, followups.where(FollowUp.status == "Completed")),
+        "cancelled_followups": _count(db, followups.where(FollowUp.status == "Cancelled")),
+    }
+
+
 def build(db: Session, ctx: CurrentUser, tz_offset_minutes: int = 0) -> dict:
     return zulu(_build(db, ctx, tz_offset_minutes))
 
@@ -48,6 +87,7 @@ def _build(db: Session, ctx: CurrentUser, tz_offset_minutes: int = 0) -> dict:
         "todays_visits": _count(db, visits.where(Visit.visit_time >= today_start, Visit.visit_time < today_end)),
         "upcoming_followups": followup_svc.to_out(db, list(db.scalars(upcoming).unique().all())),
     }
+    data.update(_charts(db, visits, followups, today_start, today_end, tz_offset_minutes))
 
     recent_v = list(db.scalars(visits.order_by(Visit.visit_time.desc(), Visit.id.desc()).limit(10)).all())
     data["recent_visits"] = [v.model_dump() for v in visit_svc.to_out(db, recent_v)]

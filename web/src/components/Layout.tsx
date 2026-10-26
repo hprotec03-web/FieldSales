@@ -1,8 +1,9 @@
-import { ReactNode, useState } from "react";
+import { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { Icon, IconName } from "./icons";
 
-interface NavItem { to: string; label: string; show: boolean }
+interface NavItem { to: string; label: string; icon: IconName; show: boolean }
 
 export default function Layout() {
   const { me, can, logout } = useAuth();
@@ -10,46 +11,81 @@ export default function Layout() {
   const nav = useNavigate();
   if (!me) return null;
 
-  const items: NavItem[] = [
-    { to: "/", label: "Dashboard", show: true },
-    { to: "/customers", label: "Customers", show: can("Customer.View") },
-    { to: "/visits", label: "Visits", show: can("Visit.View") },
-    { to: "/followups", label: "Follow-ups", show: can("FollowUp.View") },
-    { to: "/reports", label: "Reports", show: can("Reports.View") },
-    { to: "/users", label: "Users", show: can("User.View") },
-    { to: "/roles", label: "Roles & permissions", show: can("User.View") && can("Company.Edit") },
-    { to: "/branches", label: "Branches", show: can("Branch.Create") || can("Branch.Edit") },
-    { to: "/company", label: "Company", show: can("Company.Edit") },
-    { to: "/profile", label: "My profile", show: true },
+  const main: NavItem[] = [
+    { to: "/", label: "Dashboard", icon: "dashboard", show: true },
+    { to: "/customers", label: "Customers", icon: "customers", show: can("Customer.View") },
+    { to: "/visits", label: "Visits", icon: "visits", show: can("Visit.View") },
+    { to: "/followups", label: "Follow-ups", icon: "followups", show: can("FollowUp.View") },
+    { to: "/reports", label: "Reports", icon: "reports", show: can("Reports.View") },
+  ];
+  const admin: NavItem[] = [
+    { to: "/users", label: "Users", icon: "users", show: can("User.View") },
+    { to: "/roles", label: "Roles & permissions", icon: "roles", show: can("User.View") && can("Company.Edit") },
+    { to: "/branches", label: "Branches", icon: "branches", show: can("Branch.Create") || can("Branch.Edit") },
+    { to: "/company", label: "Company", icon: "company", show: can("Company.Edit") },
+    { to: "/profile", label: "My profile", icon: "profile", show: true },
   ];
 
   const link = ({ isActive }: { isActive: boolean }) =>
-    `block rounded-md px-3 py-2 text-sm ${isActive ? "bg-brand-50 font-semibold text-brand-700" : "text-slate-600 hover:bg-slate-100"}`;
+    `group flex items-center gap-3 rounded-lg px-3 py-[7px] text-sm font-medium transition ${
+      isActive ? "bg-white/10 text-white shadow-[inset_2px_0_0_0_#6da7ec]" : "text-slate-400 hover:bg-white/5 hover:text-slate-100"}`;
 
-  const sidebar: ReactNode = (
-    <nav aria-label="Main" className="space-y-1">
-      {items.filter((i) => i.show).map((i) => (
-        <NavLink key={i.to} to={i.to} end={i.to === "/"} className={link} onClick={() => setOpen(false)}>{i.label}</NavLink>
-      ))}
-    </nav>
+  const section = (title: string, items: NavItem[]) => {
+    const visible = items.filter((i) => i.show);
+    if (!visible.length) return null;
+    return (
+      <div>
+        <div className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">{title}</div>
+        <div className="space-y-0.5">
+          {visible.map((i) => (
+            <NavLink key={i.to} to={i.to} end={i.to === "/"} className={link} onClick={() => setOpen(false)}>
+              <Icon name={i.icon} className="shrink-0 opacity-90" />{i.label}
+            </NavLink>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const initials = me.full_name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
+  const Logo = (
+    <Link to="/" className="flex items-center gap-2.5">
+      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-400 to-brand-700 text-white shadow-lg shadow-brand-900/30">
+        <Icon name="target" size={18} />
+      </span>
+      <span className="text-[17px] font-semibold tracking-tight text-white">FieldSales</span>
+    </Link>
   );
 
   return (
-    <div className="min-h-screen md:flex">
-      <header className="flex items-center justify-between border-b bg-white px-4 py-3 md:hidden">
-        <Link to="/" className="font-bold text-brand-600">FieldSales</Link>
-        <button aria-label="Toggle menu" className="rounded-md border px-3 py-1 text-sm" onClick={() => setOpen((o) => !o)}>Menu</button>
+    <div className="min-h-screen bg-[#f6f7f9] md:flex">
+      <header className="sticky top-0 z-30 flex items-center justify-between bg-slate-950 px-4 py-3 md:hidden">
+        {Logo}
+        <button aria-label="Toggle menu" aria-expanded={open} className="rounded-lg p-2 text-slate-300 hover:bg-white/10" onClick={() => setOpen((o) => !o)}>
+          <Icon name={open ? "x" : "menu"} size={20} />
+        </button>
       </header>
-      <aside className={`${open ? "block" : "hidden"} border-r bg-white p-4 md:block md:w-60 md:shrink-0`}>
-        <Link to="/" className="mb-4 hidden text-lg font-bold text-brand-600 md:block">FieldSales</Link>
-        {sidebar}
-        <div className="mt-6 border-t pt-4 text-xs text-slate-500">
-          <div className="font-medium text-slate-700">{me.full_name}</div>
-          <div>{me.role.name} · {me.company_name}</div>
-          <button className="mt-2 text-red-600 hover:underline" onClick={async () => { await logout(); nav("/login"); }}>Log out</button>
+      <aside className={`${open ? "flex" : "hidden"} flex-col bg-slate-950 px-3 pb-3 pt-4 md:sticky md:top-0 md:flex md:h-screen md:w-64 md:shrink-0`}>
+        <div className="mb-5 hidden px-3 pt-1 md:block">{Logo}</div>
+        {/* menu scrolls only when the window is very short; the scrollbar stays hidden until hovered */}
+        <nav aria-label="Main" className="sidebar-scroll -mr-1 min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
+          {section("Workspace", main)}
+          {section("Administration", admin)}
+        </nav>
+        <div className="mt-3 flex items-center gap-3 border-t border-white/10 px-2 pt-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-500/20 text-sm font-semibold text-brand-300">{initials}</span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium text-white">{me.full_name}</div>
+            <div className="truncate text-xs text-slate-400">{me.role.name} · {me.company_name}</div>
+          </div>
+          <button aria-label="Log out" title="Log out"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white"
+            onClick={async () => { await logout(); nav("/login"); }}>
+            <Icon name="logout" size={16} />
+          </button>
         </div>
       </aside>
-      <main className="min-w-0 flex-1 p-4 md:p-6"><Outlet /></main>
+      <main className="min-w-0 flex-1 p-4 md:p-8"><Outlet /></main>
     </div>
   );
 }

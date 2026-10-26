@@ -32,7 +32,11 @@ class FieldSalesApp extends StatelessWidget {
     return MaterialApp(
       title: 'FieldSales',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2563EB)), useMaterial3: true),
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2A78D6)),
+        scaffoldBackgroundColor: const Color(0xFFF6F7F9),
+        useMaterial3: true,
+      ),
       home: const _Gate(),
     );
   }

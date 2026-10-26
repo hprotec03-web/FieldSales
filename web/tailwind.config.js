@@ -3,7 +3,8 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
-      colors: { brand: { 50: "#eff6ff", 100: "#dbeafe", 500: "#2563eb", 600: "#1d4ed8", 700: "#1e40af" } },
+      colors: { brand: { 50: "#eef5fd", 100: "#cde2fb", 200: "#9ec5f4", 300: "#6da7ec", 400: "#3987e5", 500: "#2a78d6", 600: "#256abf", 700: "#1c5cab", 800: "#184f95", 900: "#0d366b" } },
+      fontFamily: { sans: ["Inter", "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"] },
     },
   },
   plugins: [],

@@ -28,7 +28,8 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
     if (_index >= tabs.length) _index = 0;
     return Scaffold(
-      body: SafeArea(child: IndexedStack(index: _index, children: [for (final t in tabs) t.page])),
+      // top: false lets the dashboard header run under the status bar; screens with an AppBar pad themselves.
+      body: SafeArea(top: false, child: IndexedStack(index: _index, children: [for (final t in tabs) t.page])),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),

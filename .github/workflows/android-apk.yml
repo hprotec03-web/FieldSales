@@ -6,7 +6,7 @@ on:
       api_base_url:
         description: "Address of your FieldSales API that the phone can reach (e.g. http://192.168.1.20:8001 or https://api.example.com)"
         required: true
-        default: "http://192.168.1.20:8001"
+        default: "http://85.237.211.180:8001"
   push:
     branches: [main]
     paths:
@@ -21,7 +21,7 @@ jobs:
       run:
         working-directory: mobile
     env:
-      API_URL: ${{ github.event.inputs.api_base_url || 'http://192.168.1.20:8001' }}
+      API_URL: ${{ github.event.inputs.api_base_url || 'http://85.237.211.180:8001' }}
     steps:
       - uses: actions/checkout@v4
 
