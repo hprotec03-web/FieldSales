@@ -1,22 +1,42 @@
 # FieldSales - multi-company field sales tracking
 
 Python (FastAPI) API + SQL Server, a React web app and a Flutter app for Android/iOS.
-Salesmen record customer visits and schedule follow-ups; managers assign customers and supervise; every company's data is isolated.
+Salesmen record customer visits and schedule follow-ups, check in / take breaks / check out with GPS, and share their
+location every 10 minutes during working hours; managers assign customers, watch a live map and run reports;
+every company's data is isolated.
 
 ```
 FieldSales/
-  backend/   FastAPI, SQLAlchemy 2, Alembic, pytest      (Python 3.12+)
+  backend/   FastAPI, SQLAlchemy 2, Alembic, pytest      (Python 3.12)
   web/       React + TypeScript + Vite + Tailwind         (Node 20+)
-  mobile/    Flutter app (Android + iOS)                  (Flutter 3.22+)
+  mobile/    Flutter app (Android + iOS)                  (built by GitHub Actions)
+  scripts/   setup / start scripts for Windows
   docs/      API reference, deployment guide, checklist & known issues
-  docker-compose.yml
 ```
 
-> ## Verification status - please read
-> This project was generated in a sandbox that **could not download packages** (PyPI/npm were blocked) and had no SQL Server or Flutter SDK.
-> Therefore **nothing has been executed**: the backend test-suite, the web build/tests and the Flutter app have **not been run**, and nothing has been tried against SQL Server.
-> What *was* done: syntax checks of all Python, an offline run of the Pydantic request-validation rules, and careful static review.
-> Treat this as a complete, carefully written first drop that needs its first real build/test pass (`pytest`, `npm run build`, `flutter analyze`). See `docs/CHECKLIST.md`.
+## Run it (Windows server)
+
+This folder is the single source of the project: it is the git repository (GitHub builds the Android APK from it)
+and the place the server runs from. Two files are deliberately **not** in git and must exist locally:
+`backend\.env` (database password, JWT secret) and `backend\uploads\` (customer and visit photos) - back them up.
+
+```powershell
+cd C:\Python-Projects\FieldSalesApk\FieldSales-repo
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1          # first time only (Python env + web packages)
+
+powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1  # window 1: API on :8001 (applies DB migrations first)
+powershell -ExecutionPolicy Bypass -File scripts\start-web.ps1      # window 2: web app on http://localhost:5173
+```
+
+* Phones reach the API at `http://<server public IP>:8001` (Windows Firewall rule "FieldSales API (TCP 8001)").
+* Android APK: GitHub -> Actions -> **Build Android APK** (runs on every push that changes `mobile/`; the API
+  address defaults to the public server - override it in "Run workflow").
+* Exact backend package versions are pinned in `backend\requirements.lock` (known-working); `requirements.txt` holds the ranges.
+
+### Status
+Backend (73 tests incl. attendance and tracking), web (11 tests, typecheck, production build) and the Android APK
+build all pass, and the app runs against SQL Server in production. Plain HTTP is still used - add HTTPS before
+handling real customer data at scale (see `docs/DEPLOYMENT.md`).
 
 ## 1. Backend quick start (Windows)
 
