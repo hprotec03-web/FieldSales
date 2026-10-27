@@ -83,3 +83,11 @@ def attendance_areas(date_from: date | None = None, date_to: date | None = None,
                      db: Session = Depends(get_db)):
     """Location-wise summary: activity per area and salesman."""
     return _emit(*svc.attendance_areas_report(db, ctx, date_from, date_to, salesman_id), format, "attendance-areas")
+
+
+@router.get("/attendance-track")
+def attendance_track(date_from: date | None = None, date_to: date | None = None, salesman_id: int | None = None,
+                     format: str = Fmt, ctx: CurrentUser = Depends(require_permission("Reports.View")),
+                     db: Session = Depends(get_db)):
+    """Location tracking: every position recorded during working hours, with distance between points."""
+    return _emit(*svc.attendance_track_report(db, ctx, date_from, date_to, salesman_id), format, "attendance-track")

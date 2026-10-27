@@ -199,6 +199,7 @@ class _AttendanceCardState extends State<AttendanceCard> {
         if (br != null) 'Break since ${fmtTime(br.startAt)} (${fmtDuration(now.difference(br.startAt))})'
         else if (s.breaks.isNotEmpty) '${s.breaks.length} break${s.breaks.length == 1 ? '' : 's'} · ${fmtDuration(s.breakAt(now))}',
       ],
+      footer: br != null ? null : _TrackingStatus(att: att),
       actions: [
         if (br != null)
           FilledButton.icon(
@@ -226,6 +227,7 @@ class _AttendanceCardState extends State<AttendanceCard> {
     required List<Widget> actions,
     String? trailing,
     String? trailingLabel,
+    Widget? footer,
   }) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -262,10 +264,48 @@ class _AttendanceCardState extends State<AttendanceCard> {
             padding: const EdgeInsets.only(left: 20, bottom: 2),
             child: Text(l, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: Color(0xFF475569))),
           ),
+        if (footer != null) Padding(padding: const EdgeInsets.only(left: 20, top: 6), child: footer),
         const SizedBox(height: 12),
         Wrap(spacing: 8, runSpacing: 8, children: actions),
       ]),
     );
+  }
+}
+
+/// "Location sharing on · last sent 3 min ago" (or why it is not running).
+class _TrackingStatus extends StatelessWidget {
+  const _TrackingStatus({required this.att});
+  final AttendanceState att;
+  @override
+  Widget build(BuildContext context) {
+    final t = att.tracking;
+    final now = DateTime.now();
+    String text;
+    Color color = kMuted;
+    IconData icon = Icons.wifi_tethering_rounded;
+    if (t.problem != null) {
+      text = t.problem!;
+      color = kCritical;
+      icon = Icons.location_disabled_outlined;
+    } else if (!t.active) {
+      text = 'Location sharing is starting…';
+    } else {
+      final last = t.lastSentAt ?? t.lastFixAt;
+      final ago = last == null ? null : now.difference(last);
+      text = ago == null ? 'Location sharing on' : 'Location sharing on · updated ${ago.inMinutes < 1 ? 'just now' : '${fmtDuration(ago)} ago'}';
+      if (t.pending > 0) text += ' · ${t.pending} waiting for internet';
+      if (ago != null && ago > const Duration(minutes: 25)) {
+        color = const Color(0xFFB45309);
+        text += '\nNo update for a while: keep FieldSales running and allow it in battery settings.';
+      } else {
+        color = kGood;
+      }
+    }
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Icon(icon, size: 14, color: color),
+      const SizedBox(width: 6),
+      Expanded(child: Text(text, style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w500))),
+    ]);
   }
 }
 

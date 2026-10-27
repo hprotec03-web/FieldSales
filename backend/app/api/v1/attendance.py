@@ -10,7 +10,8 @@ from app.core.exceptions import Forbidden, NotFound
 from app.db.session import get_db
 from app.models import Branch
 from app.models.attendance import Attendance
-from app.schemas.attendance import AttendanceOut, BreakStart, CheckIn, CheckOut, CurrentAttendance, LocationIn, TeamDay, TeamDayRow
+from app.schemas.attendance import (AttendanceOut, BreakStart, CheckIn, CheckOut, CurrentAttendance, LocationIn, PingBatch,
+                                    PingResult, RouteOut, TeamDay, TeamDayRow)
 from app.schemas.common import Page, PageParams, paginate
 from app.services import attendance as svc
 from app.utils.time import utcnow
@@ -111,11 +112,30 @@ def team_day(day: date | None = Query(None, alias="date"), tz_offset_minutes: in
     return TeamDay(date=day, rows=rows, generated_at=now)
 
 
-@router.get("/{attendance_id}", response_model=AttendanceOut)
-def get_session(attendance_id: int, ctx: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.post("/pings", response_model=PingResult)
+def pings(data: PingBatch, ctx: CurrentUser = Mark, db: Session = Depends(get_db)):
+    """Background tracking: the phone uploads queued GPS points (normally one every ~10 minutes while working).
+    `tracking: false` in the reply tells the phone to stop (checked out or on a break)."""
+    res = svc.add_pings(db, ctx, data)
+    db.commit()
+    return res
+
+
+def _visible(db: Session, ctx: CurrentUser, attendance_id: int) -> Attendance:
     _require_any(ctx)
     a = db.scalars(svc.sessions_stmt(ctx).where(Attendance.id == attendance_id)).first()
     if not a:
         raise NotFound("Attendance record not found")
-    return _one(db, a)
+    return a
+
+
+@router.get("/{attendance_id}", response_model=AttendanceOut)
+def get_session(attendance_id: int, ctx: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _one(db, _visible(db, ctx, attendance_id))
+
+
+@router.get("/{attendance_id}/route", response_model=RouteOut)
+def get_route(attendance_id: int, ctx: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The day's path: check-in, every tracking point, breaks and check-out, plus distance travelled."""
+    return svc.route(db, _visible(db, ctx, attendance_id))
 

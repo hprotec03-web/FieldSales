@@ -210,13 +210,16 @@ def attendance_report(db: Session, ctx: CurrentUser, date_from=None, date_to=Non
             "check_out_at": s.check_out_at, "check_out_place": _place(s.check_out), "check_out_map": _map(s.check_out),
             "check_out_method": s.check_out_method or "", "breaks": len(s.breaks), "break_time": _hm(s.break_minutes),
             "worked_time": _hm(s.worked_minutes), "worked_hours": round(s.worked_minutes / 60, 2),
+            "distance_km": s.distance_km, "tracking_points": s.ping_count, "longest_gap": _hm(s.max_gap_minutes),
             "status": STATE_LABELS[s.state], "fake_gps": "Yes" if s.any_mocked else "",
         })
     cols = [("work_date", "Date"), ("salesman", "Salesman"), ("branch", "Branch"),
             ("check_in_at", "Check-in"), ("check_in_place", "Check-in location"), ("check_in_map", "Check-in map"),
             ("check_out_at", "Check-out"), ("check_out_place", "Check-out location"), ("check_out_map", "Check-out map"),
             ("check_out_method", "Check-out by"), ("breaks", "Breaks"), ("break_time", "Break time"),
-            ("worked_time", "Working time"), ("worked_hours", "Working hours"), ("status", "Status"), ("fake_gps", "Fake GPS")]
+            ("worked_time", "Working time"), ("worked_hours", "Working hours"), ("distance_km", "Distance (km)"),
+            ("tracking_points", "Tracking points"), ("longest_gap", "Longest gap without location"),
+            ("status", "Status"), ("fake_gps", "Fake GPS")]
     return cols, rows
 
 
@@ -276,4 +279,38 @@ def attendance_areas_report(db: Session, ctx: CurrentUser, date_from=None, date_
     cols = [("area", "Area"), ("salesman", "Salesman"), ("days", "Days"), ("check_ins", "Check-ins"), ("breaks", "Breaks"),
             ("check_outs", "Check-outs"), ("events", "Total events"), ("first_seen", "First seen"), ("last_seen", "Last seen"),
             ("map", "Map")]
+    return cols, rows
+
+
+def attendance_track_report(db: Session, ctx: CurrentUser, date_from=None, date_to=None, user_id=None):
+    """Every position of the working day (attendance events + background points every ~10 minutes), in time order,
+    with the distance from the previous point."""
+    from app.models.attendance import Attendance
+    from app.services import attendance as att_svc
+    stmt = att_svc.sessions_stmt(ctx)
+    if date_from:
+        stmt = stmt.where(Attendance.work_date >= date_from)
+    if date_to:
+        stmt = stmt.where(Attendance.work_date <= date_to)
+    if user_id:
+        stmt = stmt.where(Attendance.user_id == user_id)
+    sessions = list(db.scalars(stmt.order_by(Attendance.work_date.desc(), Attendance.check_in_at).limit(2000)).all())
+    names = dict(db.execute(select(User.id, User.full_name).where(User.id.in_({a.user_id for a in sessions}))).all()) if sessions else {}
+    pings = att_svc.load_pings(db, [a.id for a in sessions])
+    rows = []
+    for a in sessions:
+        prev = None
+        for p in att_svc.route_points(a, pings.get(a.id, [])):
+            step = att_svc._km(prev.latitude, prev.longitude, p.latitude, p.longitude) if prev else 0.0
+            rows.append({
+                "work_date": a.work_date.isoformat(), "salesman": names.get(a.user_id, ""), "time": p.at, "event": p.label,
+                "latitude": p.latitude, "longitude": p.longitude,
+                "accuracy_m": round(p.accuracy) if p.accuracy is not None else None,
+                "km_from_previous": round(step, 2), "map": f"https://www.google.com/maps?q={p.latitude},{p.longitude}",
+            })
+            prev = p
+            if len(rows) >= MAX_ROWS:
+                break
+    cols = [("work_date", "Date"), ("salesman", "Salesman"), ("time", "Time"), ("event", "Event"), ("latitude", "Latitude"),
+            ("longitude", "Longitude"), ("accuracy_m", "Accuracy (m)"), ("km_from_previous", "Km from previous"), ("map", "Map")]
     return cols, rows

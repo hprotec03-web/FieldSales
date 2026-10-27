@@ -18,6 +18,7 @@ const REPORTS = [
   { key: "attendance", label: "Attendance & working hours", path: "/reports/attendance", filters: ["dates", "salesman"] },
   { key: "attendance-locations", label: "Attendance locations (every event)", path: "/reports/attendance-locations", filters: ["dates", "salesman"] },
   { key: "attendance-areas", label: "Attendance by area (location-wise)", path: "/reports/attendance-areas", filters: ["dates", "salesman"] },
+  { key: "attendance-track", label: "Location tracking (every 10 min)", path: "/reports/attendance-track", filters: ["dates", "salesman"] },
 ] as const;
 
 const looksLikeIso = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?$/.test(v);

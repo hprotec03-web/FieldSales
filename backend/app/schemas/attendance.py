@@ -1,9 +1,10 @@
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.attendance import BREAK_TYPES
 from app.schemas.common import UTCDateTime, blank_to_none
+from app.utils.time import to_naive_utc
 
 
 class LocationIn(BaseModel):
@@ -87,6 +88,63 @@ class AttendanceOut(BaseModel):
     break_minutes: int
     worked_minutes: int       # (check-out or now) - check-in - breaks
     any_mocked: bool
+    # background tracking
+    last_seen: "LastSeen | None" = None  # latest known position (tracking point or attendance event)
+    ping_count: int = 0
+    distance_km: float = 0.0
+    max_gap_minutes: int = 0             # longest stretch of working time without any location
+
+
+class LastSeen(BaseModel):
+    latitude: float
+    longitude: float
+    accuracy: float | None
+    at: UTCDateTime
+    source: str  # tracking | check_in | break_start | break_end | check_out
+
+
+class PingIn(BaseModel):
+    recorded_at: datetime
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    accuracy: float | None = Field(default=None, ge=0, le=100000)
+    speed: float | None = Field(default=None, ge=0, le=1000)
+    is_mocked: bool = False
+    source: str = Field(default="background", pattern="^(background|foreground)$")
+
+    @field_validator("recorded_at")
+    @classmethod
+    def _utc_seconds(cls, v: datetime) -> datetime:
+        return to_naive_utc(v).replace(microsecond=0)
+
+
+class PingBatch(BaseModel):
+    pings: list[PingIn] = Field(min_length=1, max_length=500)
+
+
+class PingResult(BaseModel):
+    accepted: int
+    ignored: int   # duplicates, or outside working time (before check-in, during a break, after check-out)
+    tracking: bool  # False tells the phone to stop: no open session, or on a break
+
+
+class RoutePoint(BaseModel):
+    at: UTCDateTime
+    latitude: float
+    longitude: float
+    accuracy: float | None
+    kind: str  # tracking | check_in | break_start | break_end | check_out
+    label: str
+
+
+class RouteOut(BaseModel):
+    attendance_id: int
+    user_name: str
+    work_date: date
+    points: list[RoutePoint]
+    distance_km: float
+    max_gap_minutes: int
+    ping_count: int
 
 
 class CurrentAttendance(BaseModel):
@@ -107,3 +165,6 @@ class TeamDay(BaseModel):
     date: date
     rows: list[TeamDayRow]
     generated_at: UTCDateTime
+
+
+AttendanceOut.model_rebuild()

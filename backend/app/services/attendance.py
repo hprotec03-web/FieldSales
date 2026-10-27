@@ -5,8 +5,11 @@ Rules
 * A user can only act on their OWN session; viewing other people's attendance needs Attendance.View
   and a company-wide data scope.
 * A session left open past its working day (salesman forgot to check out) is closed automatically
-  at the last known activity (check-in, break, or visit), marked check_out_method = "auto".
+  at the last known activity (check-in, break, tracking point or visit), marked check_out_method = "auto".
+* Background tracking: the phone sends a GPS point every ~10 minutes while working. Points before
+  check-in, during a break or after check-out are ignored, so nothing is stored outside working time.
 """
+import math
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -17,8 +20,9 @@ from sqlalchemy.orm import Session
 from app.core.context import CurrentUser
 from app.core.exceptions import Conflict
 from app.models import Branch, Role, User, Visit
-from app.models.attendance import Attendance, AttendanceBreak
-from app.schemas.attendance import AttendanceOut, BreakOut, BreakStart, CheckIn, CheckOut, LocationIn, LocationOut
+from app.models.attendance import Attendance, AttendanceBreak, LocationPing
+from app.schemas.attendance import (AttendanceOut, BreakOut, BreakStart, CheckIn, CheckOut, LastSeen, LocationIn, LocationOut,
+                                    PingBatch, PingResult, RouteOut, RoutePoint)
 from app.utils.time import utcnow
 
 
@@ -51,6 +55,10 @@ def _last_activity(db: Session, a: Attendance) -> datetime:
         Visit.user_id == a.user_id, Visit.visit_time >= a.check_in_at, Visit.visit_time < day_end))
     if last_visit:
         times.append(last_visit)
+    last_ping = db.scalar(select(func.max(LocationPing.recorded_at)).where(
+        LocationPing.attendance_id == a.id, LocationPing.recorded_at < day_end))
+    if last_ping:
+        times.append(last_ping)
     return max(times)
 
 
@@ -179,10 +187,11 @@ def _secs(start: datetime, end: datetime) -> float:
     return max(0.0, (end - start).total_seconds())
 
 
-def to_out(db: Session, rows: list[Attendance], now: datetime | None = None) -> list[AttendanceOut]:
+def to_out(db: Session, rows: list[Attendance], now: datetime | None = None, with_track: bool = True) -> list[AttendanceOut]:
     now = now or utcnow()
     if not rows:
         return []
+    pings = load_pings(db, [a.id for a in rows]) if with_track else {}
     names = dict(db.execute(select(User.id, User.full_name).where(User.id.in_({a.user_id for a in rows}))).all())
     bids = {a.branch_id for a in rows if a.branch_id}
     branches = dict(db.execute(select(Branch.id, Branch.name).where(Branch.id.in_(bids))).all()) if bids else {}
@@ -210,5 +219,130 @@ def to_out(db: Session, rows: list[Attendance], now: datetime | None = None) -> 
             device_info=a.device_info, breaks=breaks, break_minutes=int(break_secs // 60),
             worked_minutes=int(max(0.0, _secs(a.check_in_at, end) - break_secs) // 60),
             any_mocked=a.check_in_mocked or a.check_out_mocked or any(b.start_mocked or b.end_mocked for b in a.breaks),
+            **(track_stats(a, pings.get(a.id, []), now) if with_track else {}),
         ))
     return out
+
+
+# ---------- background tracking ----------
+PING_SLACK = timedelta(minutes=2)       # clock differences between phone and server
+MAX_ACCURACY_FOR_DISTANCE = 100.0       # metres; rougher fixes are shown but not used for distance
+MAX_SPEED_KMH = 200.0                   # faster "movement" between two fixes is a GPS jump
+
+
+def add_pings(db: Session, ctx: CurrentUser, batch: PingBatch) -> PingResult:
+    """Store tracking points for MY sessions. Points arrive late when the phone was offline, so each point is matched
+    to the session that was running at that time; anything outside working time is ignored."""
+    now = utcnow()
+    times = [p.recorded_at for p in batch.pings]
+    lo, hi = min(times), max(times)
+    sessions = list(db.scalars(select(Attendance).where(
+        Attendance.user_id == ctx.id, Attendance.check_in_at <= hi + PING_SLACK,
+        (Attendance.check_out_at.is_(None)) | (Attendance.check_out_at >= lo - PING_SLACK))).all())
+    seen = set(db.scalars(select(LocationPing.recorded_at).where(
+        LocationPing.user_id == ctx.id, LocationPing.recorded_at >= lo, LocationPing.recorded_at <= hi)).all())
+    accepted = ignored = 0
+    for p in sorted(batch.pings, key=lambda x: x.recorded_at):
+        t = p.recorded_at
+        s = next((s for s in sessions if s.check_in_at - PING_SLACK <= t <= (s.check_out_at or now) + PING_SLACK), None)
+        on_break = s is not None and any(b.start_at <= t <= (b.end_at or now) for b in s.breaks)
+        if t in seen or t > now + PING_SLACK or s is None or on_break:
+            ignored += 1
+            continue
+        db.add(LocationPing(company_id=ctx.company_id, user_id=ctx.id, attendance_id=s.id, recorded_at=t, received_at=now,
+                            lat=_dec(p.latitude), lng=_dec(p.longitude), accuracy=p.accuracy, speed=p.speed,
+                            is_mocked=p.is_mocked, source=p.source))
+        seen.add(t)
+        accepted += 1
+    db.flush()
+    cur = close_if_stale(db, current_session(db, ctx), now)
+    return PingResult(accepted=accepted, ignored=ignored, tracking=bool(cur and not _open_break(cur)))
+
+
+def load_pings(db: Session, attendance_ids: list[int]) -> dict[int, list[LocationPing]]:
+    out: dict[int, list[LocationPing]] = {}
+    for i in range(0, len(attendance_ids), 1000):  # stay under database parameter limits
+        chunk = attendance_ids[i:i + 1000]
+        for p in db.scalars(select(LocationPing).where(LocationPing.attendance_id.in_(chunk))
+                            .order_by(LocationPing.attendance_id, LocationPing.recorded_at)).all():
+            out.setdefault(p.attendance_id, []).append(p)
+    return out
+
+
+def _km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    r = 6371.0088
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lng2 - lng1)
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(h))
+
+
+def route_points(a: Attendance, pings: list[LocationPing]) -> list[RoutePoint]:
+    """Attendance events + tracking points, in time order."""
+    pts: list[RoutePoint] = []
+
+    def add(at, lat, lng, acc, kind, label):
+        if at is not None and lat is not None and lng is not None:
+            pts.append(RoutePoint(at=at, latitude=float(lat), longitude=float(lng), accuracy=acc, kind=kind, label=label))
+
+    add(a.check_in_at, a.check_in_lat, a.check_in_lng, a.check_in_accuracy, "check_in", "Checked in")
+    for b in a.breaks:
+        add(b.start_at, b.start_lat, b.start_lng, b.start_accuracy, "break_start", f"{b.break_type} break started")
+        add(b.end_at, b.end_lat, b.end_lng, b.end_accuracy, "break_end", "Back to work")
+    for p in pings:
+        add(p.recorded_at, p.lat, p.lng, p.accuracy, "tracking", "Location update")
+    add(a.check_out_at, a.check_out_lat, a.check_out_lng, a.check_out_accuracy, "check_out", "Checked out")
+    order = {"check_in": 0, "break_end": 1, "tracking": 2, "break_start": 3, "check_out": 4}
+    pts.sort(key=lambda x: (x.at, order[x.kind]))
+    return pts
+
+
+def _distance_km(points: list[RoutePoint]) -> float:
+    good = [p for p in points if p.accuracy is None or p.accuracy <= MAX_ACCURACY_FOR_DISTANCE]
+    total = 0.0
+    prev = None
+    for p in good:
+        if prev is not None:
+            d = _km(prev.latitude, prev.longitude, p.latitude, p.longitude)
+            hours = max((p.at - prev.at).total_seconds() / 3600, 1 / 3600)
+            if d / hours > MAX_SPEED_KMH:  # GPS jump: skip this point, keep the previous one as anchor
+                continue
+            total += d
+        prev = p
+    return round(total, 2)
+
+
+def _overlap_seconds(start: datetime, end: datetime, intervals: list[tuple[datetime, datetime]]) -> float:
+    return sum(max(0.0, (min(end, e) - max(start, s)).total_seconds()) for s, e in intervals)
+
+
+def _max_gap_minutes(a: Attendance, points: list[RoutePoint], now: datetime) -> int:
+    """Longest working stretch (breaks excluded) between two known positions, up to check-out or now."""
+    end = a.check_out_at or now
+    breaks = [(b.start_at, b.end_at or end) for b in a.breaks]
+    times = sorted({p.at for p in points if a.check_in_at <= p.at <= end} | {a.check_in_at, end})
+    gap = 0.0
+    for t1, t2 in zip(times, times[1:]):
+        gap = max(gap, (t2 - t1).total_seconds() - _overlap_seconds(t1, t2, breaks))
+    return int(gap // 60)
+
+
+def track_stats(a: Attendance, pings: list[LocationPing], now: datetime) -> dict:
+    points = route_points(a, pings)
+    last = points[-1] if points else None
+    return {
+        "last_seen": LastSeen(latitude=last.latitude, longitude=last.longitude, accuracy=last.accuracy, at=last.at,
+                              source=last.kind) if last else None,
+        "ping_count": len(pings),
+        "distance_km": _distance_km(points),
+        "max_gap_minutes": _max_gap_minutes(a, points, now),
+    }
+
+
+def route(db: Session, a: Attendance, now: datetime | None = None) -> RouteOut:
+    now = now or utcnow()
+    pings = load_pings(db, [a.id]).get(a.id, [])
+    points = route_points(a, pings)
+    name = db.scalar(select(User.full_name).where(User.id == a.user_id)) or ""
+    return RouteOut(attendance_id=a.id, user_name=name, work_date=a.work_date, points=points,
+                    distance_km=_distance_km(points), max_gap_minutes=_max_gap_minutes(a, points, now), ping_count=len(pings))

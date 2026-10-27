@@ -5,11 +5,19 @@ import 'package:flutter/foundation.dart';
 import '../api/api_client.dart';
 import '../models.dart';
 import '../services/location_service.dart';
+import '../services/tracking_service.dart';
 
 /// The signed-in user's attendance for today. Salesmen must check in before using the app.
 class AttendanceState extends ChangeNotifier {
-  AttendanceState(this.api);
+  AttendanceState(this.api) : tracking = TrackingService(api) {
+    tracking.onChange = notifyListeners;
+    tracking.onServerStop = () {
+      final id = userId;
+      if (id != null) load(id); // server says we are on a break or checked out (e.g. from another device)
+    };
+  }
   final ApiClient api;
+  final TrackingService tracking; // background location every 10 minutes while working
 
   int? userId;              // whose attendance is loaded (reset when another user logs in)
   AttendanceSession? session;      // open session: working or on a break
@@ -40,6 +48,7 @@ class AttendanceState extends ChangeNotifier {
       if (res['break_types'] is List) breakTypes = List<String>.from(res['break_types'] as List);
       final server = DateTime.tryParse(res['server_time']?.toString() ?? '');
       if (server != null) clockSkew = server.toLocal().difference(DateTime.now());
+      _syncTracking();
     } catch (e) {
       error = e;
     } finally {
@@ -62,7 +71,19 @@ class AttendanceState extends ChangeNotifier {
       session = null;
       todayClosed = s;
     }
+    _syncTracking();
     notifyListeners();
+  }
+
+  /// Track only while working: after check-in or a break, never during a break or after check-out.
+  void _syncTracking() {
+    final id = userId;
+    final s = session;
+    if (id != null && s != null && !s.onBreak) {
+      tracking.start(id);
+    } else {
+      tracking.stop();
+    }
   }
 
   Future<void> checkIn(LocationFix fix, {String? note}) =>
@@ -76,10 +97,19 @@ class AttendanceState extends ChangeNotifier {
       _apply(api.post('/attendance/check-out', {...fix.toJson(), 'method': atLogout ? 'logout' : 'manual'}));
 
   void clear() {
+    tracking.stop();
     userId = null;
     session = null;
     todayClosed = null;
     error = null;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    tracking.onChange = null;
+    tracking.onServerStop = null;
+    tracking.stop(flush: false);
+    super.dispose();
   }
 }

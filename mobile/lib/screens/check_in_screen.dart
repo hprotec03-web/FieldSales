@@ -213,8 +213,11 @@ class _CheckInScreenState extends State<CheckInScreen> {
                 ),
               ),
               const SizedBox(height: 10),
-              const Text('Your check-in time and location are shared with your manager.',
-                  textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: kMuted)),
+              const Text(
+                  'Your check-in time and location are shared with your manager. While you are working, your location is '
+                  'also shared every 10 minutes (paused during breaks, stopped when you end your day).',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: kMuted)),
             ]),
           ),
         ]),

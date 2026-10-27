@@ -14,3 +14,7 @@
 .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
 .sidebar-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 9999px; }
 .sidebar-scroll:hover::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); }
+
+/* Leaflet map tiles must not be squeezed by Tailwind's img reset. */
+.leaflet-container img { max-width: none !important; }
+.leaflet-container { font-family: Inter, system-ui, sans-serif; }

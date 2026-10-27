@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, Numeric, Unicode, text
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, Numeric, Unicode, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -87,3 +87,24 @@ class AttendanceBreak(Base):
     end_mocked: Mapped[bool] = mapped_column(Boolean, default=False)
 
     attendance: Mapped[Attendance] = relationship(back_populates="breaks")
+
+
+class LocationPing(Base):
+    """Background GPS point sent by the phone every ~10 minutes while the salesman is working (not on a break)."""
+    __tablename__ = "location_pings"
+    __table_args__ = (
+        Index("ix_location_pings_attendance_time", "attendance_id", "recorded_at"),
+        UniqueConstraint("user_id", "recorded_at", name="uq_location_ping_user_time"),  # retries never duplicate a point
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    attendance_id: Mapped[int] = mapped_column(ForeignKey("attendance.id"))
+    recorded_at: Mapped[datetime] = mapped_column(DateTime)  # when the phone took the fix (UTC, whole seconds)
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    lat: Mapped[Decimal] = mapped_column(Numeric(9, 6))
+    lng: Mapped[Decimal] = mapped_column(Numeric(9, 6))
+    accuracy: Mapped[float | None] = mapped_column(Float)
+    speed: Mapped[float | None] = mapped_column(Float)  # m/s
+    is_mocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    source: Mapped[str] = mapped_column(Unicode(20), default="background")
